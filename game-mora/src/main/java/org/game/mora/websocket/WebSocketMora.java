@@ -1,0 +1,207 @@
+package org.game.mora.websocket;
+
+import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import javax.websocket.EndpointConfig;
+import javax.websocket.OnClose;
+import javax.websocket.OnError;
+import javax.websocket.OnMessage;
+import javax.websocket.OnOpen;
+import javax.websocket.Session;
+import javax.websocket.server.PathParam;
+import javax.websocket.server.ServerEndpoint;
+
+import org.game.mora.websocket.menu.MsgState;
+import org.game.mora.websocket.msg.Message;
+import org.game.mora.websocket.msg.PingMsg;
+import org.game.mora.websocket.realm.GameRunner;
+import org.game.mora.websocket.realm.Player;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import com.google.gson.Gson;
+
+@ServerEndpoint(value = "/webSocket/mora/{userId}")
+@Component
+public class WebSocketMora {
+
+	private static Logger logger = LoggerFactory.getLogger(WebSocketMora.class);
+	private static Gson gson = new Gson();
+
+	private static ConcurrentSkipListSet<String> onlineCount = new ConcurrentSkipListSet<String>();
+	public static ConcurrentHashMap<String, Player> players = new ConcurrentHashMap<String, Player>();
+	public static ConcurrentHashMap<String, Integer> succession = new ConcurrentHashMap<String, Integer>();// 用户连胜纪录
+
+	// 与某个客户端的连接会话，通过它实现定向推送(只推送给某个用户)
+	private Player player;
+
+	static {
+		Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(() -> GameRunner.INSTANCE.match(), 0, 2,
+				TimeUnit.SECONDS);
+	}
+
+	/**
+	 * 建立连接成功调用的方法
+	 * 
+	 * @param session
+	 * @throws IOException 
+	 */
+	@OnOpen
+	public void onOpen(@PathParam("userId") String userId, Session session, EndpointConfig config) throws IOException {
+		if (players.containsKey(userId)) {
+			this.player = players.get(userId);
+			player.recon(session);// 玩家重连
+			if (player.isMatch() && null != player.getRoom()) {
+				// 重连操作
+				player.getRoom().reConnect(player);// 房间重连
+			} else {
+				GameRunner.INSTANCE.push(userId);
+			}
+			logger.info("用户：" + userId + "重连成功,当前在线人数为：" + addOnlineCount(userId));
+		} else {
+			if (onlineCount.add(userId)) {
+				try {
+					this.player = new Player(session, userId);
+					players.put(userId, player);
+					GameRunner.INSTANCE.push(userId);
+					logger.info("玩家" + userId + "加入，当前在线人数为：" + addOnlineCount(userId));
+				} catch (Exception e) {
+					if(session!=null)
+						session.close();
+					e.printStackTrace();
+				}
+				
+			}
+		}
+	}
+
+	/**
+	 * 连接关闭调用的方法
+	 * 
+	 * @param closeSession
+	 * @throws IOException
+	 */
+	@OnClose
+	public void onClose(@PathParam("userId") String userId, Session session) throws IOException {
+		GameRunner.INSTANCE.remove(userId);
+		Player player = players.get(userId);
+		if (player != null && player.getRoom() != null) {
+			player.getRoom().dissolve(player);
+		}
+		logger.info("玩家" + userId + "离开，当前在线人数为：" + subOnlineCount(userId));
+	}
+
+	public static void quit(String userId) {
+		players.remove(userId);
+	}
+
+	/**
+	 * 收到客户端调用
+	 * 
+	 * @param message
+	 * @param mySession
+	 */
+	@OnMessage
+	public void onMessage(String message, Session session, @PathParam("userId") String userId) {
+		try {
+			Message msg = gson.fromJson(message, Message.class);
+			MsgState state = MsgState.match(msg.getState());
+			if (null == state) {
+				logger.info("异常消息：{}", message);
+				return;
+			}
+			// if (state != MsgState.ping)
+			// logger.debug(userId + "发来消息：" + message);
+			switch (state) {
+			case ping:// 心跳包
+				player.setPushTime(System.currentTimeMillis() / 1000);
+				sendMessage(new PingMsg(), session);
+				break;
+			case ready:// 玩家就绪
+			case pready:// 每轮比赛就绪
+			case card://玩家出牌消息
+			case quit://玩家退出消息
+			case content://玩家聊天消息
+				if (player.getRoom() != null)
+					player.getRoom().action(state, message, player);
+				break;
+			case clear:// 清空连胜信息
+				succession.remove(userId);
+				break;
+			default:
+				break;
+			}
+		} catch (Exception e) {
+			logger.info("异常消息：{}", message);
+			e.printStackTrace();
+		}
+	}
+
+	@OnError
+	public void onError(@PathParam("userId") String userId, Throwable throwable, Session session) {
+		logger.info("Exception : userId = " + userId + " , throwable = " + throwable.toString() + "/"
+				+ throwable.getMessage());
+		// throwable.printStackTrace();
+		// if(throwable instanceof EOFException) {
+		// System.out.println(session.isOpen());
+		// return;
+		// }
+		// if (player.getRoom() != null) {
+		// player.getRoom().finish_(player,LoseReason.exception);
+		// }else {
+		// GameRunner.INSTANCE.remove(userId);
+		// player.close();
+		// }
+	}
+
+	public static void sendMessage(Message message, Session session) {
+		try {
+			if (session.isOpen())
+				session.getBasicRemote().sendText(gson.toJson(message));
+		} catch (Exception e) {
+			logger.info("发送消息失败 ");
+			e.printStackTrace();
+		}
+	}
+
+	public void sendAllMessage(String message) throws IOException {
+		this.player.getSession().getBasicRemote().sendText(message);
+	}
+
+	// 用户添加连胜纪录
+	public static void addSuc(String userId) {
+		if (!succession.containsKey(userId)) {
+			succession.put(userId, 1);
+		} else {
+			succession.put(userId, succession.get(userId) + 1);
+		}
+	}
+
+	// 获取用户连胜
+	public static int getSuc(String userId) {
+		return succession.getOrDefault(userId, 0);
+	}
+
+	// 获取在线人数
+	public static int getOnlineCount() {
+		return onlineCount.size();
+	}
+
+	// 添加在线人数+1
+	public static int addOnlineCount(String userId) {
+		onlineCount.add(userId);
+		return onlineCount.size();
+	}
+
+	// 减少在线人数-1
+	public static int subOnlineCount(String userId) {
+		onlineCount.remove(userId);
+		return onlineCount.size();
+	}
+
+}
