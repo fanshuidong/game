@@ -17,21 +17,23 @@ import lombok.Setter;
 @Setter
 public class ReConnectMsg extends Message{
 	
-	public ReConnectMsg(List<Card> mCards,Integer tCards,Integer time,Integer ms,Integer ts) {
+	public ReConnectMsg(List<Card> mCards,Integer tCards,Integer time,Integer card,Integer ts,String userId) {
 		super(MsgState.connect);
 		this.mCards = new ArrayList<Integer>();
-		for(Card card : mCards)
-			this.mCards.add(card.mark());
+		for(Card card_ : mCards)
+			this.mCards.add(card_.mark());
 		this.tCards = tCards;
 		this.time = time;
-		this.ms = ms;
+		this.card = card;
+		this.userId = userId;
 		this.ts = ts;
 	}
 	
 	private List<Integer> mCards;//自己的手牌
 	private Integer tCards;//对方手牌数量
 	private Integer time;//剩余的出牌时间
-	private Integer ms;//自己的出牌状态 1:出牌 0 未出牌
+	private String userId;//对手id
+	private Integer card;//自己出的牌
 	private Integer ts;//对手出牌状态
 
 }

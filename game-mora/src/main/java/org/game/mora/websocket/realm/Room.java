@@ -43,8 +43,8 @@ public class Room {
 	private ScheduledFuture<?> gameTask;
 //	private ScheduledFuture<?> compareTask;
 	private AtomicReference<RoomState> roomState = new AtomicReference<RoomState>(null);//房间状态
-	private AtomicReference<Boolean> isCalculate = new AtomicReference<Boolean>(false);//比较数据中
 	private LoseReason loseReason;// 失败原因
+	private AtomicReference<Boolean> isCompare = new AtomicReference<Boolean>(false);//是否再比较中
 	private String startTime;// 开始时间
 	private String endTime;// 结束时间
 	private String gameId = "";
@@ -96,7 +96,10 @@ public class Room {
 					if (rival.isPready()) {// 如果对手已经就绪
 						player.send(new StartMsg());
 						rival.send(new StartMsg());
+						logger.info("比赛开始");
 						gameTaskInit();
+						player.setPready(false);
+						rival.setPready(false);
 					}
 				}
 			}
@@ -109,19 +112,18 @@ public class Room {
 						logger.info("用户 {} 没有该卡牌：{}",player.getUserId(),msg.getCard());
 						return;
 					}
-					player.setCard(msg.getCard());
-					player.getRival().send(new CardMsg());
-					if(player.getRival().getCard() != null) {
-						if(isCalculate.compareAndSet(false, true)){
+					synchronized (this) {
+						player.setCard(msg.getCard());
+						player.getRival().send(new CardMsg());
+						if(player.getRival().getCard() != null) {
 							gameTask.cancel(false);
-							compare_();
+							if(isCompare.compareAndSet(false, true))
+								compare_();
 						}
 					}
 				}
 			} catch (Exception e) {
 				logger.info(e.getMessage());
-			} finally {
-				isCalculate.set(false);
 			}
 			break;
 		case quit:
@@ -151,34 +153,34 @@ public class Room {
 	 * 启动每轮出牌计时
 	 */
 	private void gameTaskInit() {
+		isCompare.set(false);
 		gameTask = ExcutorUtil.excuter.schedule(() -> {
-			compare();
+			if(isCompare.compareAndSet(false, true))
+				compare();
 		},MoraConfig.gameTime(), TimeUnit.SECONDS);
 	}
 	
 	//每轮的双方卡牌比较，出牌时间到了之后调用
 	private void compare() {
 		//1、只有一方玩家出牌，另外一方掉线等待重连没出牌
-		if(isCalculate.compareAndSet(false, true)){
-			if(player1.getCard() != null && player2.getCard() == null) {
-				//掉线方随机选出一张牌
-				player2.setCard(player2.getCards().get(0).mark());
-				result(player1);
-			}
-			if(player2.getCard() != null && player1.getCard() == null) {
-				//掉线方随机选出一张牌
-				player1.setCard(player1.getCards().get(0).mark());
-				result(player2);
-			}
-			//2、双方玩家都出牌（这里包含前端随机出牌）
-			if(player1.getCard() != null && player2.getCard() != null)
-				compare_();
-			//3、双方都掉线等待重连没出牌
-			if(player2.getCard() == null && player1.getCard() == null) {
-				player1.setCard(player1.getCards().get(0).mark());
-				player2.setCard(player2.getCards().get(0).mark());
-				result(null);
-			}
+		if(player1.getCard() != null && player2.getCard() == null) {
+			//掉线方随机选出一张牌
+			player2.setCard(player2.getCards().get(0).mark());
+			result(player1);
+		}
+		if(player2.getCard() != null && player1.getCard() == null) {
+			//掉线方随机选出一张牌
+			player1.setCard(player1.getCards().get(0).mark());
+			result(player2);
+		}
+		//2、双方玩家都出牌（这里包含前端随机出牌）
+		if(player1.getCard() != null && player2.getCard() != null)
+			compare_();
+		//3、双方都掉线等待重连没出牌
+		if(player2.getCard() == null && player1.getCard() == null) {
+			player1.setCard(player1.getCards().get(0).mark());
+			player2.setCard(player2.getCards().get(0).mark());
+			result(null);
 		}
 	}
 	
@@ -226,9 +228,6 @@ public class Room {
 			finish(player2);
 		}else if(player2.getCards().size() == 0) {
 			finish(player1);
-		}else {
-			isCalculate.compareAndSet(true, false);
-//			gameTaskInit();
 		}
 		player1.setCard(null);
 		player2.setCard(null);
@@ -253,6 +252,7 @@ public class Room {
 //			compareTask.cancel(false);
 			this.loseReason = LoseReason.normal;
 			logger.info("{} 玩家 {} 与  {} 比赛结束,失败原因：{}", endTime, player1.getUserId(), player2.getUserId(),loseReason.desc());
+			this.endTime = DateUtil.getDate(DateUtil.YYYY_MM_DD_HH_MM_SS_SSS);
 			Room.httpEnd(gameId, player1.getUserId(), 0, player2.getUserId(), 0,endTime, loseReason.mark(), winner);
 		}
 	}
@@ -308,10 +308,9 @@ public class Room {
 			player.send(new LookMsg(player.getCards(), player.getRival().getCards()));
 		}
 		if (roomState.get() == RoomState.run) {
-			int ms = player.getCard() == null ? 0:1;
 			int ts = player.getRival().getCard() == null ? 0:1;
-			int time = (int)gameTask.getDelay(TimeUnit.SECONDS);	
-			player.send(new ReConnectMsg(player.getCards(), player.getRival().getCards().size(),time,ms,ts));
+			int time = gameTask.isCancelled()?-1:(int)gameTask.getDelay(TimeUnit.SECONDS);	
+			player.send(new ReConnectMsg(player.getCards(), player.getRival().getCards().size(),time,player.getCard(),ts,player.getMatchUserId()));
 		}
 		if (roomState.get() == RoomState.finish) {
 			player.send(new FinishMsg(winner.equals(player.getUserId()) ? 1:winner.equals("1000") ? 2 : 0 , 

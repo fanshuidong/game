@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.websocket.Session;
 
@@ -53,7 +54,6 @@ public class Player {
 			e.printStackTrace();
 		}
 	}
-	
 	private Session session;
 	private String userId;
 	private long pushTime;// 最近一次接收到包的时间
