@@ -68,8 +68,10 @@ public class Player {
 
 	public void send(Message message) {
 		try {
-			if(session.isOpen())
+			if(session.isOpen()) {
 				this.session.getBasicRemote().sendText(gson.toJson(message));
+				logger.info("发送消息给"+userId+"->"+gson.toJson(message));
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}

@@ -130,8 +130,11 @@ public class Room {
 			finish_(player, LoseReason.quit);
 			break;
 		case content:
-			if (RoomState.run == roomState.get()) 
+			if (RoomState.run == roomState.get())
 				player.getRival().send(gson.fromJson(message, ContentMsg.class));
+			break;
+		case curdata:
+			reConnect(player);
 			break;
 		default:
 			break;
@@ -156,6 +159,7 @@ public class Room {
 		isCompare.set(false);
 		gameTask = ExcutorUtil.excuter.schedule(() -> {
 			if(isCompare.compareAndSet(false, true))
+				gameTask.cancel(false);
 				compare();
 		},MoraConfig.gameTime(), TimeUnit.SECONDS);
 	}
@@ -167,17 +171,14 @@ public class Room {
 			//掉线方随机选出一张牌
 			player2.setCard(player2.getCards().get(0).mark());
 			result(player1);
-		}
-		if(player2.getCard() != null && player1.getCard() == null) {
+		}else if(player2.getCard() != null && player1.getCard() == null) {
 			//掉线方随机选出一张牌
 			player1.setCard(player1.getCards().get(0).mark());
 			result(player2);
-		}
-		//2、双方玩家都出牌（这里包含前端随机出牌）
-		if(player1.getCard() != null && player2.getCard() != null)
+		}else if(player1.getCard() != null && player2.getCard() != null)//2、双方玩家都出牌（这里包含前端随机出牌）
 			compare_();
 		//3、双方都掉线等待重连没出牌
-		if(player2.getCard() == null && player1.getCard() == null) {
+		else if(player2.getCard() == null && player1.getCard() == null) {
 			player1.setCard(player1.getCards().get(0).mark());
 			player2.setCard(player2.getCards().get(0).mark());
 			result(null);
@@ -211,16 +212,16 @@ public class Room {
 	 */
 	protected void result(Player win) {
 		if(win == null) {//平手
-			player1.send(new ResultMsg(2,player2.getCard()));
-			player2.send(new ResultMsg(2,player1.getCard()));
 			player2.getCards().remove(Card.match(player2.getCard()));
 			player1.getCards().remove(Card.match(player1.getCard()));
+			player1.send(new ResultMsg(2,player2.getCard(),player1.getCards(),player2.getCards().size()));
+			player2.send(new ResultMsg(2,player1.getCard(),player2.getCards(),player1.getCards().size()));
 		}else {
 			Player loser = win.getRival();
-			win.send(new ResultMsg(1, loser.getCard()));
-			loser.send(new ResultMsg(0, win.getCard()));
 			win.getCards().add(Card.match(loser.getCard()));
 			loser.getCards().remove(Card.match(loser.getCard()));
+			win.send(new ResultMsg(1, loser.getCard(),win.getCards(),loser.getCards().size()));
+			loser.send(new ResultMsg(0, win.getCard(),loser.getCards(),win.getCards().size()));
 		}
 		if(player1.getCards().size() == 0 && player2.getCards().size() == 0) {
 			finish(null);
@@ -309,7 +310,7 @@ public class Room {
 		}
 		if (roomState.get() == RoomState.run) {
 			int ts = player.getRival().getCard() == null ? 0:1;
-			int time = gameTask.isCancelled()?-1:(int)gameTask.getDelay(TimeUnit.SECONDS);	
+			int time = gameTask.isCancelled()?(-1):(int)gameTask.getDelay(TimeUnit.SECONDS);	
 			player.send(new ReConnectMsg(player.getCards(), player.getRival().getCards().size(),time,player.getCard(),ts,player.getMatchUserId()));
 		}
 		if (roomState.get() == RoomState.finish) {
@@ -340,4 +341,5 @@ public class Room {
 			}
 		}
 	}
+
 }

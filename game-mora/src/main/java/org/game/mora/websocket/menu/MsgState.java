@@ -15,8 +15,10 @@ public enum MsgState {
 	cancel(11, "比赛开始前有玩家退出"),
 	connect(12, "重连比赛双方数据"),
 	pready(13, "每轮比赛就绪"),
-	content(20, "玩家游戏内消息推送");
-
+	content(20, "玩家游戏内消息推送"),
+	curdata(30, "主动获取当前最新比赛数据");
+	
+	
 	private int mark;
 	private String desc;
 

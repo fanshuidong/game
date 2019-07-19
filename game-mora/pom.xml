@@ -21,7 +21,7 @@
   </dependencies>
   
 	<build>
-		<finalName>jumper</finalName>
+		<finalName>mora</finalName>
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -36,7 +36,7 @@
 						<manifest>
 							<addClasspath>true</addClasspath>
 							<classpathPrefix>lib/</classpathPrefix>
-							<mainClass>org.game.jumpre.JumpreStart</mainClass>
+							<mainClass>org.game.mora.MoraStart</mainClass>
 						</manifest>
 						<manifestEntries>
 							<Class-Path>./</Class-Path>

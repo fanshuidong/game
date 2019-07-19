@@ -115,8 +115,8 @@ public class WebSocketMora {
 				logger.info("异常消息：{}", message);
 				return;
 			}
-			// if (state != MsgState.ping)
-			// logger.debug(userId + "发来消息：" + message);
+			if (state != MsgState.ping)
+				logger.debug("用户 "+userId + "发来消息：" + message);
 			switch (state) {
 			case ping:// 心跳包
 				player.setPushTime(System.currentTimeMillis() / 1000);
@@ -127,6 +127,7 @@ public class WebSocketMora {
 			case card://玩家出牌消息
 			case quit://玩家退出消息
 			case content://玩家聊天消息
+			case curdata:
 				if (player.getRoom() != null)
 					player.getRoom().action(state, message, player);
 				break;
@@ -161,8 +162,10 @@ public class WebSocketMora {
 
 	public static void sendMessage(Message message, Session session) {
 		try {
-			if (session.isOpen())
+			if (session.isOpen()) {
 				session.getBasicRemote().sendText(gson.toJson(message));
+			}
+			
 		} catch (Exception e) {
 			logger.info("发送消息失败 ");
 			e.printStackTrace();
